@@ -42,3 +42,10 @@ Unlike traditional federated learning systems that rely on a **central server**,
 ┌────────┐ ┌────────┐ ┌────────┐
 │Client 1│ │Client 2│ │Client 3│
 └────────┘ └────────┘ └────────┘
+Each client:
+
+trains locally
+signs updates
+sends to random peers
+verifies received updates
+aggregates locally
