@@ -151,17 +151,7 @@ This ensures:
 
 ---
 
-##  Centralized vs Decentralized FL
 
-| Feature         | Centralized FL  | This Project      |
-| --------------- | --------------- | ----------------- |
-| Server          | Required        | ❌ Not required    |
-| Aggregation     | Server-side     | Local (each node) |
-| Communication   | Client → Server | Peer-to-peer      |
-| Fault Tolerance | Low             | High              |
-| Scalability     | Limited         | High              |
-
----
 
 ##  Conclusion
 
