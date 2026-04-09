@@ -8,10 +8,13 @@
 # The server collects submissions from node.get_all_submissions() instead of
 # directly from clients — it gets everything the gossip network propagated.
 #
-# Nothing in FederatedClient changes.  GossipNode is a pure wrapper.
+# Nothing in FederatedClient changes. GossipNode is a pure wrapper.
 
 from torch.utils.data import DataLoader
 from client.fl_client import FederatedClient
+
+import numpy as np
+from utils.weights import bytes_to_weight_arrays, apply_weight_arrays
 
 
 class GossipNode:
@@ -26,13 +29,13 @@ class GossipNode:
 
     def __init__(self, client_id: str, dataloader: DataLoader, device: str):
         # Delegate all FL work to FederatedClient
-        self.client         = FederatedClient(client_id, dataloader, device)
+        self.client = FederatedClient(client_id, dataloader, device)
         self.own_submission: dict | None = None
-        self.inbox:          list[dict]  = []
+        self.inbox: list[dict] = []
 
         # Convenience pass-throughs so main.py can treat GossipNode like a client
         self.client_id = client_id
-        self.pk        = self.client.pk          # public key (for server registration)
+        self.pk = self.client.pk  # public key (for server registration)
 
     # ------------------------------------------------------------------ #
     def local_train(self, global_weight_arrays: list, epochs: int = 1):
@@ -56,8 +59,8 @@ class GossipNode:
         Deduplication is handled by GossipProtocol — we just store it here.
         """
         already_have = any(
-    m["payload"] == message["payload"] for m in self.inbox
-)
+            m["payload"] == message["payload"] for m in self.inbox
+        )
         if not already_have:
             self.inbox.append(message)
 
@@ -72,3 +75,23 @@ class GossipNode:
             all_subs.append(self.own_submission)
         all_subs.extend(self.inbox)
         return all_subs
+
+    # ------------------------------------------------------------------ #
+    def aggregate_local_updates(self, submissions: list[dict], template_model):
+        """
+        Aggregate received model updates locally using simple averaging.
+        """
+        if not submissions:
+            return
+
+        weight_sets = []
+        for sub in submissions:
+            arrays = bytes_to_weight_arrays(sub["update_bytes"], template_model)
+            weight_sets.append(arrays)
+
+        averaged = [
+            np.mean([weights[i] for weights in weight_sets], axis=0)
+            for i in range(len(weight_sets[0]))
+        ]
+
+        apply_weight_arrays(self.client.model, averaged)

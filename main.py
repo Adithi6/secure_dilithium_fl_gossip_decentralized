@@ -1,15 +1,3 @@
-# main.py
-#
-# Full flow per round:
-#
-#   1. Server broadcasts global weights to all nodes
-#   2. Each node trains locally
-#   3. Each node signs its update
-#   4. GossipProtocol spreads every signed update across peers
-#        - Each receiving peer verifies the Dilithium sig before forwarding
-#        - Stops at max_hops or when all peers have seen the message
-#   5. Server collects each node's full inbox, verifies again, runs FedAvg
-#   6. Server evaluates global model accuracy
 import time
 import numpy as np
 import torch
@@ -31,6 +19,10 @@ GOSSIP_MAX_HOPS    = 3
 
 
 def print_timing_table(all_timings: list[dict]):
+    if not all_timings:
+        print("\nNo server timings available (fully decentralized mode).")
+        return
+
     print(f"\n{'='*64}")
     print("  Crypto Timing Summary (sign + server-verify)")
     print(f"{'='*64}")
@@ -41,7 +33,7 @@ def print_timing_table(all_timings: list[dict]):
             f"  {t['round']:<6} {t['client_id']:<12}"
             f" {t['sign_ms']:<14} {t['verify_ms']:<14} {t['valid']}"
         )
-    sign_ms   = [t["sign_ms"]   for t in all_timings]
+    sign_ms   = [t["sign_ms"] for t in all_timings]
     verify_ms = [t["verify_ms"] for t in all_timings]
     print(f"\n  Avg sign   : {np.mean(sign_ms):.3f} ms"
           f"  (min {np.min(sign_ms):.3f}  max {np.max(sign_ms):.3f})")
@@ -51,26 +43,20 @@ def print_timing_table(all_timings: list[dict]):
 
 
 def main():
-    
     start_time = time.time()
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"\nDevice : {device}")
     print(f"Config : {N_CLIENTS} clients | {N_ROUNDS} rounds | "
           f"{LOCAL_EPOCHS} local epoch(s) | "
           f"gossip fanout={GOSSIP_FANOUT} max_hops={GOSSIP_MAX_HOPS}\n")
-    
-    
 
-    # ── Data ──────────────────────────────────────────────────
     client_loaders, test_loader = make_client_loaders(
         n_clients=N_CLIENTS,
         samples_per_client=SAMPLES_PER_CLIENT,
     )
 
-    # ── Server ────────────────────────────────────────────────
     server = FederatedServer(device)
 
-    # ── Nodes ────────────────────────────────────────────────
     print("── Key generation ──────────────────────────────────")
     nodes: list[GossipNode] = []
     for i in range(N_CLIENTS):
@@ -78,7 +64,6 @@ def main():
         server.register_client(node.client_id, node.pk)
         nodes.append(node)
 
-    # ── Gossip protocol ──────────────────────────────────────
     all_pub_keys = {n.client_id: n.pk for n in nodes}
     gossip = GossipProtocol(
         fanout=GOSSIP_FANOUT,
@@ -86,54 +71,38 @@ def main():
         all_pub_keys=all_pub_keys,
     )
 
-    # ── Federated rounds ─────────────────────────────────────
+    # initialize all nodes once with same starting model
+    initial_weights = server.global_weight_arrays()
+    for node in nodes:
+        node.local_train(initial_weights, epochs=0)
+
     for round_num in range(1, N_ROUNDS + 1):
         round_start = time.time()
         print(f"\n── Round {round_num}/{N_ROUNDS} ──────────────────────────────────")
 
-        global_weights = server.global_weight_arrays()
-
-        # Step 1: local training
         print("\n  [training]")
         for node in nodes:
-            node.local_train(global_weights, epochs=LOCAL_EPOCHS)
+            node.local_train(None, epochs=LOCAL_EPOCHS)
 
-        # Step 2: each node signs its own update
         print("\n  [signing]")
         for node in nodes:
             node.sign_update()
 
-        # Step 3: gossip
         print("\n  [gossip propagation]")
         gossip.run_round(nodes)
         gossip.print_gossip_summary()
 
-        # Step 4: server collects from node inboxes, verifies again, FedAvg
-        print("\n  [server verification & aggregation]")
-        seen_payloads: set[bytes] = set()
-        all_submissions: list[dict] = []
-
+        print("\n  [fully decentralized aggregation]")
         for node in nodes:
-            for sub in node.get_all_submissions():
-                if sub["payload"] not in seen_payloads:
-                    seen_payloads.add(sub["payload"])
-                    all_submissions.append(sub)
+            local_submissions = node.get_all_submissions()
+            if local_submissions:
+                node.aggregate_local_updates(local_submissions, node.client.model)
 
-        server.verify_and_aggregate(all_submissions, round_num=round_num)
-
-        # Step 5: evaluate
-        accuracy = server.evaluate(test_loader)
-        print(f"\n  Global model accuracy : {accuracy:.2f}%")
-        
         round_end = time.time()
         print(f"  Round {round_num} execution time : {round_end - round_start:.2f} seconds")
 
     end_time = time.time()
     print(f"\nTotal execution time : {end_time - start_time:.2f} seconds")
-
-    # ── Final timing summary ─────────────────────────────────
-
-    
 
     print_timing_table(server.all_timings)
 

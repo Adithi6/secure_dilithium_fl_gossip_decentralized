@@ -1,12 +1,11 @@
 # client/fl_client.py
 # Each FL client:
 #   1. Generates a Dilithium keypair on init
-#   2. Receives global weights from the server each round
+#   2. Receives common initial weights once
 #   3. Trains locally on its private data
-#   4. Signs its updated weights and sends the package to the server
+#   4. Signs its updated weights
 
 import hashlib
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -27,36 +26,40 @@ class FederatedClient:
         self.device = device
         self.model = SmallCNN().to(device)
 
+        # loss and optimizer
+        self.criterion = nn.CrossEntropyLoss()
+        self.optimizer = optim.Adam(self.model.parameters(), lr=0.001)
+
         # ── Dilithium keygen ──────────────────────────────────
         self.pk, self.sk, keygen_ms = dilithium_utils.keygen()
-        print(f"  [{client_id}] keygen : {keygen_ms:.2f} ms  "
-              f"(pk={len(self.pk)}B  sk={len(self.sk)}B)")
+        print(
+            f"  [{client_id}] keygen : {keygen_ms:.2f} ms  "
+            f"(pk={len(self.pk)}B  sk={len(self.sk)}B)"
+        )
 
-    def local_train(self, global_weight_arrays: list, epochs: int = 1):
-        """
-        Load the latest global model weights and fine-tune on local data.
+    def local_train(self, global_weight_arrays=None, epochs=1):
+        if global_weight_arrays is not None:
+            apply_weight_arrays(self.model, global_weight_arrays)
 
-        Args:
-            global_weight_arrays : list of numpy arrays from the server
-            epochs               : how many passes over local data
-        """
-        apply_weight_arrays(self.model, global_weight_arrays)
+        if epochs == 0:
+            return
 
-        optimizer = optim.SGD(self.model.parameters(), lr=0.01, momentum=0.9)
-        criterion = nn.CrossEntropyLoss()
         self.model.train()
+        total_loss = 0.0
 
-        for epoch in range(epochs):
-            total_loss = 0.0
+        for _ in range(epochs):
             for x, y in self.dataloader:
                 x, y = x.to(self.device), y.to(self.device)
-                optimizer.zero_grad()
-                loss = criterion(self.model(x), y)
+
+                self.optimizer.zero_grad()
+                output = self.model(x)
+                loss = self.criterion(output, y)
                 loss.backward()
-                optimizer.step()
+                self.optimizer.step()
+
                 total_loss += loss.item()
 
-        print(f"  [{self.client_id}] trained  | loss: {total_loss/len(self.dataloader):.4f}")
+        print(f"  [{self.client_id}] trained  | loss: {total_loss / len(self.dataloader):.4f}")
 
     def sign_update(self) -> dict:
         update_bytes = weights_to_bytes(self.model)
@@ -70,9 +73,11 @@ class FederatedClient:
 
         signature, sign_ms = dilithium_utils.sign(self.sk, payload)
 
-        print(f"  [{self.client_id}] signed ({mode}) | {sign_ms:.3f} ms  "
-              f"input={len(payload)} B  update={len(update_bytes)/1024:.1f} KB  "
-              f"sig={len(signature)} B")
+        print(
+            f"  [{self.client_id}] signed ({mode}) | {sign_ms:.3f} ms  "
+            f"input={len(payload)} B  update={len(update_bytes)/1024:.1f} KB  "
+            f"sig={len(signature)} B"
+        )
 
         return {
             "client_id": self.client_id,
