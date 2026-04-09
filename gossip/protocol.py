@@ -126,11 +126,11 @@ class GossipProtocol:
             logging.info("No gossip timings recorded for this round")
             return
 
-        logging.info("─" * 54)
+        logging.info("-" * 54)
         logging.info(f"Gossip log (fanout={self.fanout} max_hops={self.max_hops})")
-        logging.info("─" * 54)
+        logging.info("-" * 54)
         logging.info(f"{'From':<12} {'To':<12} {'Hop':<5} {'Verify (ms)':<14} Accepted")
-        logging.info("─" * 54)
+        logging.info("-" * 54)
 
         for t in self.gossip_timings:
             logging.info(
