@@ -30,3 +30,15 @@ Unlike traditional federated learning systems that rely on a **central server**,
 ---
 
 ##  System Architecture
+       ┌────────────┐
+       │  Client 0  │
+       └─────┬──────┘
+             │
+    ┌────────▼────────┐
+    │ Gossip Protocol │
+    └────────┬────────┘
+ ┌───────────┼───────────┐
+ ▼           ▼           ▼
+┌────────┐ ┌────────┐ ┌────────┐
+│Client 1│ │Client 2│ │Client 3│
+└────────┘ └────────┘ └────────┘
