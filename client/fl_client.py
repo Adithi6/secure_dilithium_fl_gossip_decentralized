@@ -18,7 +18,6 @@ class FederatedClient:
         self.use_hash = use_hash
         self.model = SmallCNN().to(device)
 
-        # loss and optimizer
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = optim.Adam(self.model.parameters(), lr=0.001)
 
@@ -39,16 +38,26 @@ class FederatedClient:
         total_loss = 0.0
 
         for _ in range(epochs):
-            for x, y in self.dataloader:
+            for batch_idx, (x, y) in enumerate(self.dataloader):
                 x, y = x.to(self.device), y.to(self.device)
 
                 self.optimizer.zero_grad()
-                output = self.model(x)
-                loss = self.criterion(output, y)
+
+                logits = self.model(x)
+                loss = self.criterion(logits, y)
+
                 loss.backward()
                 self.optimizer.step()
 
                 total_loss += loss.item()
+
+                # Debug logits only for first batch to avoid too much logging
+                if batch_idx == 0:
+                    pred = torch.argmax(logits, dim=1)
+                    logging.info(
+                        f"[{self.client_id}] logits sample: {logits[0].detach().cpu().numpy()} | "
+                        f"pred={pred[0].item()} | actual={y[0].item()}"
+                    )
 
         total_batches = len(self.dataloader) * epochs
         logging.info(f"[{self.client_id}] trained | loss: {total_loss / total_batches:.4f}")
