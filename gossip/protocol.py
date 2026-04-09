@@ -6,7 +6,6 @@ from crypto import dilithium_utils
 
 
 class GossipProtocol:
-
     def __init__(
         self,
         fanout: int = 2,
@@ -17,11 +16,11 @@ class GossipProtocol:
         self.max_hops = max_hops
         self.all_pub_keys = all_pub_keys or {}
 
-        self._seen: set[tuple[bytes, str]] = set()
+        # Track: ((original_sender_id, payload), forwarder_id)
+        self._seen: set[tuple[tuple[str, bytes], str]] = set()
         self.gossip_timings: list[dict] = []
 
     def reset_round(self):
-        """Clear seen-set at the start of each FL round."""
         self._seen.clear()
         self.gossip_timings.clear()
         logging.info("Gossip round state reset")
@@ -61,9 +60,9 @@ class GossipProtocol:
         message: dict,
         hop: int = 0,
     ):
-       
-        msg_id = message["payload"]
-        state_id = (msg_id, origin_node.client_id)
+        # Unique identity of the message = original sender + payload
+        message_id = (message["client_id"], message["payload"])
+        state_id = (message_id, origin_node.client_id)
 
         if state_id in self._seen:
             logging.info(
@@ -105,7 +104,6 @@ class GossipProtocol:
                 self.spread(target, all_nodes, message, hop=hop + 1)
 
     def run_round(self, nodes: list["GossipNode"]):
-     
         self.reset_round()
 
         for node in nodes:
