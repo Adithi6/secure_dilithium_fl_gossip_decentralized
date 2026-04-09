@@ -29,4 +29,4 @@ Unlike traditional federated learning systems that rely on a **central server**,
 
 ---
 
-## 🏗️ System Architecture
+##  System Architecture
