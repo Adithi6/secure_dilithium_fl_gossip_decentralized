@@ -133,9 +133,9 @@ This project uses **Dilithium**, a **post-quantum digital signature scheme**, to
 
 This ensures:
 
-* ✔ authenticity of updates
-* ✔ integrity of transmitted model parameters
-* ✔ resistance against quantum attacks
+*  authenticity of updates
+*  integrity of transmitted model parameters
+*  resistance against quantum attacks
 
 ---
 
