@@ -1,15 +1,4 @@
-# gossip/node.py
-#
-# GossipNode wraps a FederatedClient and adds:
-#   - own_submission : this node's signed update (set after sign_update())
-#   - inbox          : all verified updates received via gossip from peers
-#   - receive_gossip : called by GossipProtocol when a peer forwards a message
-#
-# The server collects submissions from node.get_all_submissions() instead of
-# directly from clients — it gets everything the gossip network propagated.
-#
-# Nothing in FederatedClient changes. GossipNode is a pure wrapper.
-
+import logging
 from torch.utils.data import DataLoader
 from client.fl_client import FederatedClient
 
@@ -20,69 +9,57 @@ from utils.weights import bytes_to_weight_arrays, apply_weight_arrays
 class GossipNode:
     """
     A GossipNode = FederatedClient + gossip inbox.
-
-    Attributes:
-        client         : the underlying FederatedClient
-        own_submission : dict returned by client.sign_update()
-        inbox          : list of verified submissions received from peers
     """
 
-    def __init__(self, client_id: str, dataloader: DataLoader, device: str):
-        # Delegate all FL work to FederatedClient
-        self.client = FederatedClient(client_id, dataloader, device)
+    def __init__(self, client_id: str, dataloader: DataLoader, device: str, use_hash: bool = False):
+        self.client = FederatedClient(client_id, dataloader, device, use_hash=use_hash)
         self.own_submission: dict | None = None
         self.inbox: list[dict] = []
 
-        # Convenience pass-throughs so main.py can treat GossipNode like a client
         self.client_id = client_id
-        self.pk = self.client.pk  # public key (for server registration)
+        self.pk = self.client.pk
+        self.use_hash = use_hash
 
-    # ------------------------------------------------------------------ #
+        logging.info(f"[{self.client_id}] gossip node initialized | use_hash={self.use_hash}")
+
     def local_train(self, global_weight_arrays: list, epochs: int = 1):
-        """Delegate local training to the underlying FederatedClient."""
         self.client.local_train(global_weight_arrays, epochs)
 
-    # ------------------------------------------------------------------ #
     def sign_update(self) -> dict:
-        """
-        Sign this node's local update and store it as own_submission.
-        Also seeds the inbox with own update so get_all_submissions() is complete.
-        """
         self.own_submission = self.client.sign_update()
-        self.inbox = []   # clear stale inbox from previous round
+        self.inbox = []
+        logging.info(f"[{self.client_id}] own submission stored and inbox reset")
         return self.own_submission
 
-    # ------------------------------------------------------------------ #
     def receive_gossip(self, message: dict):
-        """
-        Accept a gossip message from a peer.
-        Deduplication is handled by GossipProtocol — we just store it here.
-        """
         already_have = any(
             m["payload"] == message["payload"] for m in self.inbox
         )
+
         if not already_have:
             self.inbox.append(message)
+            logging.info(
+                f"[{self.client_id}] received gossip from {message['client_id']} "
+                f"| inbox_size={len(self.inbox)}"
+            )
+        else:
+            logging.warning(
+                f"[{self.client_id}] duplicate gossip ignored from {message['client_id']}"
+            )
 
-    # ------------------------------------------------------------------ #
     def get_all_submissions(self) -> list[dict]:
-        """
-        Return own update + everything received via gossip.
-        The server calls this to collect all updates for a round.
-        """
         all_subs = []
         if self.own_submission:
             all_subs.append(self.own_submission)
         all_subs.extend(self.inbox)
         return all_subs
 
-    # ------------------------------------------------------------------ #
     def aggregate_local_updates(self, submissions: list[dict], template_model):
-        """
-        Aggregate received model updates locally using simple averaging.
-        """
         if not submissions:
+            logging.warning(f"[{self.client_id}] no submissions available for aggregation")
             return
+
+        logging.info(f"[{self.client_id}] aggregating {len(submissions)} submission(s)")
 
         weight_sets = []
         for sub in submissions:
@@ -95,3 +72,4 @@ class GossipNode:
         ]
 
         apply_weight_arrays(self.client.model, averaged)
+        logging.info(f"[{self.client_id}] local aggregation completed")

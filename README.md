@@ -2,6 +2,7 @@
 
 ##  Overview
 
+<<<<<<< HEAD
 This project implements a **fully decentralized federated learning (FL) system** using a **gossip-based communication protocol** and **post-quantum cryptographic signatures (Dilithium)** for secure model updates.
 
 Unlike traditional federated learning systems that rely on a **central server**, this implementation eliminates central aggregation and enables **peer-to-peer model exchange and aggregation**.
@@ -27,11 +28,156 @@ Unlike traditional federated learning systems that rely on a **central server**,
 
   * `fanout` (number of peers)
   * `max_hops` (propagation depth)
+=======
+```
+dilithium_fl/
+│
+├── main.py                      ← Entry point (runs decentralized FL loop)
+├── config.yaml                  ← Experiment, gossip, and security settings
+│
+├── model/
+│   └── cnn.py                   ← SmallCNN architecture (PyTorch)
+│
+├── data/
+│   └── loader.py                ← Downloads MNIST, splits per client
+│
+├── crypto/
+│   └── dilithium_utils.py       ← Keygen, sign, verify (Dilithium2)
+│
+├── gossip/
+│   ├── node.py                  ← GossipNode (client + inbox + aggregation)
+│   └── protocol.py              ← Peer-to-peer gossip propagation logic
+│
+├── client/
+│   └── fl_client.py             ← Local training + signing
+│
+├── server/
+│   └── fl_server.py             ← Initializes global model + stores public keys
+│
+└── utils/
+    └── weights.py               ← Convert model weights ↔ bytes
+```
+
+---
+
+## How it flows
+
+```
+main.py
+  │
+  ├─ config.yaml                 → load experiment + gossip settings
+  ├─ data/loader.py              → split MNIST among clients
+  ├─ crypto/dilithium_utils.py   → each node generates Dilithium keypair
+  │
+  └─ for each round:
+       ├─ gossip/node.py         → local SGD training on node's data
+       ├─ gossip/node.py         → sign(SHA256(weights)) using Dilithium
+       ├─ gossip/protocol.py     → propagate updates via gossip
+       │     each receiver verifies signature before forwarding
+       │     propagation stops at max_hops
+       └─ gossip/node.py         → each node aggregates received updates locally
+```
+
+---
+
+## Gossip Protocol
+
+### Without Gossip
+
+* Clients send updates directly to a central server (star topology)
+
+### With Gossip (this project)
+
+* Each node forwards its update to `fanout` random peers
+* Each receiver:
+
+  * verifies the Dilithium signature
+  * forwards only if valid
+* Messages propagate up to `max_hops`
+* Each node stores verified updates in its inbox
+* Each node performs **local aggregation (fully decentralized)**
+
+```
+node_0 → node_1, node_2
+node_1 → node_3, ...
+node_2 → node_3, ...
+
+✔ propagation continues up to max_hops  
+✔ duplicate messages ignored  
+✔ each node aggregates its own received updates  
+```
+
+---
+
+## Configuration (`config.yaml`)
+
+```yaml
+experiment:
+  n_clients: 4
+  n_rounds: 3
+  local_epochs: 1
+  samples_per_client: 500
+
+gossip:
+  fanout: 2
+  max_hops: 3
+
+security:
+  use_hash: true
+```
+
+### Key parameters
+
+* `n_clients` → number of participating nodes
+* `n_rounds` → FL rounds
+* `local_epochs` → local training per round
+* `fanout` → peers each node forwards to
+* `max_hops` → gossip depth
+* `use_hash` → enable SHA-256 before signing
+
+---
+
+## Install
+
+```bash
+pip install torch torchvision dilithium-py numpy pyyaml
+```
+
+---
+
+## Hash vs Direct Signing Comparison
+
+### 1. Hash-then-Sign (Recommended)
+
+* Model weights are hashed using SHA-256 (32 bytes)
+* The hash is signed using Dilithium
+* Verification checks:
+
+  * hash integrity
+  * signature validity
+
+### 2. Direct Signing
+
+* Full model update (~800 KB) is directly signed
+* Signature verification is performed on raw data
+
+---
+
+## Observations
+
+| Feature            | With Hash                | Without Hash      |
+| ------------------ | ------------------------ | ----------------- |
+| Input size to sign | 32 bytes                 | ~800 KB           |
+| Speed              | Faster                   | Slower            |
+| Security           | Integrity + authenticity | Authenticity only |
+| Scalability        | High                     | Low               |
+>>>>>>> 0d6300d (Updated README and finalized decentralized gossip FL implementation)
 
 ---
 
 ##  System Architecture
 
+<<<<<<< HEAD
 ```text
           +-----------+
           | Client 0  |
@@ -63,6 +209,29 @@ Each client:
 1. **Initialization**
 
    * All clients start with a **common initial model**
+=======
+| Local Epochs | Total Time (s) | Final Accuracy |
+| ------------ | -------------- | -------------- |
+| 1            | 10.66          | 77.94%         |
+| 2            | 12.39          | 89.49%         |
+| 3            | 18.12          | 93.16%         |
+| 15           | 40.70          | 95.37%         |
+
+### Observation
+
+Increasing local epochs improves model accuracy but also increases execution time.
+Beyond a point, accuracy gains become smaller compared to computational cost.
+
+---
+
+## Key Insight
+
+Hashing reduces large model updates into a fixed-size representation, making Dilithium signing efficient while preserving integrity.
+
+This is especially important in Federated Learning, where model updates are large.
+
+---
+>>>>>>> 0d6300d (Updated README and finalized decentralized gossip FL implementation)
 
 2. **Local Training**
 
@@ -115,6 +284,7 @@ py main.py
 
 ---
 
+<<<<<<< HEAD
 ##  Sample Output
 
 The program displays:
@@ -162,3 +332,13 @@ It removes reliance on a central server while maintaining model integrity and co
 ---
 
 
+=======
+## Final Note
+
+This implementation is:
+
+* Fully **decentralized (no central aggregation)**
+* Uses **gossip-based communication**
+* Secured using **post-quantum Dilithium signatures**
+* Optimized using **hash-based signing for large model updates**
+>>>>>>> 0d6300d (Updated README and finalized decentralized gossip FL implementation)

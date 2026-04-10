@@ -10,3 +10,7 @@ gossip:
 
 security:
   use_hash: true
+
+logging:
+  log_file: experiment.log
+  log_level: INFO

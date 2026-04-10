@@ -1,3 +1,5 @@
+import logging
+import yaml
 import time
 import numpy as np
 import torch
@@ -8,47 +10,75 @@ from gossip.protocol import GossipProtocol
 from server.fl_server import FederatedServer
 
 
-# ── Config ──────────────────────────────────────────────────
-N_CLIENTS          = 4
-N_ROUNDS           = 3
-LOCAL_EPOCHS       = 15
-SAMPLES_PER_CLIENT = 500
-GOSSIP_FANOUT      = 2
-GOSSIP_MAX_HOPS    = 3
-# ────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    handlers=[
+        logging.FileHandler("experiment.log"),
+        logging.StreamHandler()
+    ]
+)
+
+
+def load_config(path="config.yaml"):
+    with open(path, "r") as f:
+        return yaml.safe_load(f)
 
 
 def print_timing_table(all_timings: list[dict]):
     if not all_timings:
-        print("\nNo server timings available (fully decentralized mode).")
+        logging.info("No server timings available (fully decentralized mode).")
         return
 
-    print(f"\n{'='*64}")
-    print("  Crypto Timing Summary (sign + server-verify)")
-    print(f"{'='*64}")
-    print(f"  {'Round':<6} {'Client':<12} {'Sign (ms)':<14} {'Verify (ms)':<14} Valid")
-    print(f"  {'-'*58}")
+    logging.info("=" * 64)
+    logging.info("Crypto Timing Summary (sign + server-verify)")
+    logging.info("=" * 64)
+    logging.info(f"{'Round':<6} {'Client':<12} {'Sign (ms)':<14} {'Verify (ms)':<14} Valid")
+    logging.info("-" * 58)
+
     for t in all_timings:
-        print(
-            f"  {t['round']:<6} {t['client_id']:<12}"
-            f" {t['sign_ms']:<14} {t['verify_ms']:<14} {t['valid']}"
+        logging.info(
+            f"{t['round']:<6} {t['client_id']:<12} "
+            f"{t['sign_ms']:<14} {t['verify_ms']:<14} {t['valid']}"
         )
-    sign_ms   = [t["sign_ms"] for t in all_timings]
+
+    sign_ms = [t["sign_ms"] for t in all_timings]
     verify_ms = [t["verify_ms"] for t in all_timings]
-    print(f"\n  Avg sign   : {np.mean(sign_ms):.3f} ms"
-          f"  (min {np.min(sign_ms):.3f}  max {np.max(sign_ms):.3f})")
-    print(f"  Avg verify : {np.mean(verify_ms):.3f} ms"
-          f"  (min {np.min(verify_ms):.3f}  max {np.max(verify_ms):.3f})")
-    print(f"{'='*64}\n")
+
+    logging.info(
+        f"Avg sign   : {np.mean(sign_ms):.3f} ms "
+        f"(min {np.min(sign_ms):.3f} max {np.max(sign_ms):.3f})"
+    )
+    logging.info(
+        f"Avg verify : {np.mean(verify_ms):.3f} ms "
+        f"(min {np.min(verify_ms):.3f} max {np.max(verify_ms):.3f})"
+    )
+    logging.info("=" * 64)
 
 
 def main():
+    config = load_config()
+
+    N_CLIENTS = config["experiment"]["n_clients"]
+    N_ROUNDS = config["experiment"]["n_rounds"]
+    LOCAL_EPOCHS = config["experiment"]["local_epochs"]
+    SAMPLES_PER_CLIENT = config["experiment"]["samples_per_client"]
+
+    GOSSIP_FANOUT = config["gossip"]["fanout"]
+    GOSSIP_MAX_HOPS = config["gossip"]["max_hops"]
+
+    USE_HASH = config["security"]["use_hash"]
+
     start_time = time.time()
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"\nDevice : {device}")
-    print(f"Config : {N_CLIENTS} clients | {N_ROUNDS} rounds | "
-          f"{LOCAL_EPOCHS} local epoch(s) | "
-          f"gossip fanout={GOSSIP_FANOUT} max_hops={GOSSIP_MAX_HOPS}\n")
+
+    logging.info(f"Device: {device}")
+    logging.info(
+        f"Config: {N_CLIENTS} clients | {N_ROUNDS} rounds | "
+        f"{LOCAL_EPOCHS} local epoch(s) | "
+        f"gossip fanout={GOSSIP_FANOUT} max_hops={GOSSIP_MAX_HOPS} | "
+        f"use_hash={USE_HASH}"
+    )
 
     client_loaders, test_loader = make_client_loaders(
         n_clients=N_CLIENTS,
@@ -57,10 +87,15 @@ def main():
 
     server = FederatedServer(device)
 
-    print("── Key generation ──────────────────────────────────")
+    logging.info("Key generation started")
     nodes: list[GossipNode] = []
     for i in range(N_CLIENTS):
-        node = GossipNode(f"client_{i}", client_loaders[i], device)
+        node = GossipNode(
+            f"client_{i}",
+            client_loaders[i],
+            device,
+            use_hash=USE_HASH
+        )
         server.register_client(node.client_id, node.pk)
         nodes.append(node)
 
@@ -71,38 +106,37 @@ def main():
         all_pub_keys=all_pub_keys,
     )
 
-    # initialize all nodes once with same starting model
     initial_weights = server.global_weight_arrays()
     for node in nodes:
         node.local_train(initial_weights, epochs=0)
 
     for round_num in range(1, N_ROUNDS + 1):
         round_start = time.time()
-        print(f"\n── Round {round_num}/{N_ROUNDS} ──────────────────────────────────")
+        logging.info(f"Round {round_num}/{N_ROUNDS} started")
 
-        print("\n  [training]")
+        logging.info("Training phase started")
         for node in nodes:
             node.local_train(None, epochs=LOCAL_EPOCHS)
 
-        print("\n  [signing]")
+        logging.info("Signing phase started")
         for node in nodes:
             node.sign_update()
 
-        print("\n  [gossip propagation]")
+        logging.info("Gossip propagation started")
         gossip.run_round(nodes)
         gossip.print_gossip_summary()
 
-        print("\n  [fully decentralized aggregation]")
+        logging.info("Decentralized aggregation started")
         for node in nodes:
             local_submissions = node.get_all_submissions()
             if local_submissions:
                 node.aggregate_local_updates(local_submissions, node.client.model)
 
         round_end = time.time()
-        print(f"  Round {round_num} execution time : {round_end - round_start:.2f} seconds")
+        logging.info(f"Round {round_num} execution time: {round_end - round_start:.2f} seconds")
 
     end_time = time.time()
-    print(f"\nTotal execution time : {end_time - start_time:.2f} seconds")
+    logging.info(f"Total execution time: {end_time - start_time:.2f} seconds")
 
     print_timing_table(server.all_timings)
 

@@ -1,10 +1,4 @@
-# client/fl_client.py
-# Each FL client:
-#   1. Generates a Dilithium keypair on init
-#   2. Receives common initial weights once
-#   3. Trains locally on its private data
-#   4. Signs its updated weights
-
+import logging
 import hashlib
 import torch
 import torch.nn as nn
@@ -16,25 +10,22 @@ from crypto import dilithium_utils
 from utils.weights import apply_weight_arrays, weights_to_bytes
 
 
-USE_HASH = False
-
-
 class FederatedClient:
-    def __init__(self, client_id: str, dataloader: DataLoader, device: str):
+    def __init__(self, client_id: str, dataloader: DataLoader, device: str, use_hash: bool = False):
         self.client_id = client_id
         self.dataloader = dataloader
         self.device = device
+        self.use_hash = use_hash
         self.model = SmallCNN().to(device)
 
         # loss and optimizer
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = optim.Adam(self.model.parameters(), lr=0.001)
 
-        # ── Dilithium keygen ──────────────────────────────────
         self.pk, self.sk, keygen_ms = dilithium_utils.keygen()
-        print(
-            f"  [{client_id}] keygen : {keygen_ms:.2f} ms  "
-            f"(pk={len(self.pk)}B  sk={len(self.sk)}B)"
+        logging.info(
+            f"[{client_id}] keygen: {keygen_ms:.2f} ms "
+            f"(pk={len(self.pk)}B sk={len(self.sk)}B)"
         )
 
     def local_train(self, global_weight_arrays=None, epochs=1):
@@ -59,12 +50,13 @@ class FederatedClient:
 
                 total_loss += loss.item()
 
-        print(f"  [{self.client_id}] trained  | loss: {total_loss / len(self.dataloader):.4f}")
+        total_batches = len(self.dataloader) * epochs
+        logging.info(f"[{self.client_id}] trained | loss: {total_loss / total_batches:.4f}")
 
     def sign_update(self) -> dict:
         update_bytes = weights_to_bytes(self.model)
 
-        if USE_HASH:
+        if self.use_hash:
             payload = hashlib.sha256(update_bytes).digest()
             mode = "HASHED"
         else:
@@ -73,9 +65,9 @@ class FederatedClient:
 
         signature, sign_ms = dilithium_utils.sign(self.sk, payload)
 
-        print(
-            f"  [{self.client_id}] signed ({mode}) | {sign_ms:.3f} ms  "
-            f"input={len(payload)} B  update={len(update_bytes)/1024:.1f} KB  "
+        logging.info(
+            f"[{self.client_id}] signed ({mode}) | {sign_ms:.3f} ms "
+            f"input={len(payload)} B update={len(update_bytes)/1024:.1f} KB "
             f"sig={len(signature)} B"
         )
 
