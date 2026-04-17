@@ -58,11 +58,12 @@ def print_timing_table(all_timings: list[dict]):
 
 def main():
     config = load_config()
+    logging.info("Configuration loaded successfully from config.yaml")
 
     N_CLIENTS = config["experiment"]["n_clients"]
     N_ROUNDS = config["experiment"]["n_rounds"]
     LOCAL_EPOCHS = config["experiment"]["local_epochs"]
-    SAMPLES_PER_CLIENT = config["experiment"]["samples_per_client"]
+   
 
     GOSSIP_FANOUT = config["gossip"]["fanout"]
     GOSSIP_MAX_HOPS = config["gossip"]["max_hops"]
@@ -80,11 +81,14 @@ def main():
         f"use_hash={USE_HASH}"
     )
 
-    client_loaders, test_loader = make_client_loaders(
-        n_clients=N_CLIENTS,
-        samples_per_client=SAMPLES_PER_CLIENT,
-    )
+    BATCH_SIZE = config["data"]["batch_size"]
+    ALPHA = config["data"]["alpha"]
 
+    client_loaders, _ = make_client_loaders(
+        n_clients=N_CLIENTS,
+        batch_size=BATCH_SIZE,
+        alpha=ALPHA,
+    )
     server = FederatedServer(device)
 
     logging.info("Key generation started")

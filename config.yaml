@@ -14,3 +14,7 @@ security:
 logging:
   log_file: experiment.log
   log_level: INFO
+
+data:
+  batch_size: 32
+  alpha: 0.5
